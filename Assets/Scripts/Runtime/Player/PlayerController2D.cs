@@ -25,16 +25,23 @@ namespace Starter2D.Player
         [Header("Ground Check")]
         [SerializeField] private Transform groundCheck;
         [SerializeField] private float groundCheckRadius = 0.18f;
+        [SerializeField] private float groundProbeDistance = 0.08f;
         [SerializeField] private LayerMask groundLayer = ~0;
 
         private Rigidbody2D body;
         private Collider2D bodyCollider;
+        private readonly RaycastHit2D[] groundHits = new RaycastHit2D[8];
         private Vector2 input;
         private bool jumpPressed;
         private bool jumpHeld;
+        private bool wasJumpHeldLastFrame;
         private bool isGrounded;
         private float coyoteCounter;
         private float jumpBufferCounter;
+
+        public Vector2 Velocity => body != null ? body.linearVelocity : Vector2.zero;
+        public bool IsGrounded => isGrounded;
+        public float MoveInput => input.x;
 
         private void Awake()
         {
@@ -50,7 +57,18 @@ namespace Starter2D.Player
 
         private void Update()
         {
+            if (GameManager2D.Instance != null && GameManager2D.Instance.IsPaused)
+            {
+                input = Vector2.zero;
+                jumpPressed = false;
+                jumpHeld = false;
+                wasJumpHeldLastFrame = false;
+                jumpBufferCounter = 0f;
+                return;
+            }
+
             ReadInput();
+            CheckGrounded();
             UpdateJumpTimers();
             CutJumpOnRelease();
             FaceMoveDirection();
@@ -58,6 +76,12 @@ namespace Starter2D.Player
 
         private void FixedUpdate()
         {
+            if (GameManager2D.Instance != null && GameManager2D.Instance.IsPaused)
+            {
+                body.linearVelocity = new Vector2(0f, body.linearVelocity.y);
+                return;
+            }
+
             CheckGrounded();
             Move();
             TryJump();
@@ -109,9 +133,11 @@ namespace Starter2D.Player
             holdingJump |= Input.GetButton("Jump");
 #endif
 
+            holdingJump = holdingJump || pressedJumpThisFrame;
             input = new Vector2(Mathf.Clamp(horizontal, -1f, 1f), 0f);
-            jumpPressed = pressedJumpThisFrame;
+            jumpPressed = pressedJumpThisFrame || (holdingJump && !wasJumpHeldLastFrame);
             jumpHeld = holdingJump;
+            wasJumpHeldLastFrame = holdingJump;
         }
 
         private void UpdateJumpTimers()
@@ -122,11 +148,16 @@ namespace Starter2D.Player
 
         private void CheckGrounded()
         {
+            isGrounded = IsTouchingGroundWithBodyCast();
+            if (isGrounded)
+            {
+                return;
+            }
+
             Vector3 checkPosition = groundCheck != null
                 ? groundCheck.position
                 : transform.position + Vector3.down * 0.55f;
 
-            isGrounded = false;
             Collider2D[] hits = Physics2D.OverlapCircleAll(checkPosition, groundCheckRadius, groundLayer);
             for (int i = 0; i < hits.Length; i++)
             {
@@ -136,6 +167,28 @@ namespace Starter2D.Player
                     return;
                 }
             }
+        }
+
+        private bool IsTouchingGroundWithBodyCast()
+        {
+            ContactFilter2D filter = new()
+            {
+                useLayerMask = true,
+                layerMask = groundLayer,
+                useTriggers = false
+            };
+
+            int hitCount = bodyCollider.Cast(Vector2.down, filter, groundHits, groundProbeDistance);
+            for (int i = 0; i < hitCount; i++)
+            {
+                Collider2D hitCollider = groundHits[i].collider;
+                if (hitCollider != null && hitCollider != bodyCollider && !hitCollider.isTrigger)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void Move()
@@ -148,7 +201,8 @@ namespace Starter2D.Player
 
         private void TryJump()
         {
-            if (jumpBufferCounter <= 0f || coyoteCounter <= 0f)
+            bool canUseStableBodyJump = Mathf.Abs(body.linearVelocity.y) < 0.01f;
+            if (jumpBufferCounter <= 0f || (!isGrounded && coyoteCounter <= 0f && !canUseStableBodyJump))
             {
                 return;
             }

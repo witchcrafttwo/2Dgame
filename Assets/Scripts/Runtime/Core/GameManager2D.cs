@@ -26,6 +26,8 @@ namespace Starter2D.Core
             }
 
             Instance = this;
+            Time.timeScale = 1f;
+            IsPaused = false;
             currentCheckpoint = playerSpawnPoint != null ? playerSpawnPoint.position : Vector3.zero;
         }
 
@@ -33,7 +35,7 @@ namespace Starter2D.Core
         {
             if (player == null)
             {
-                PlayerController2D playerController = FindFirstObjectByType<PlayerController2D>();
+                PlayerController2D playerController = FindObjectOfType<PlayerController2D>();
                 if (playerController != null)
                 {
                     RegisterPlayer(playerController.gameObject);
